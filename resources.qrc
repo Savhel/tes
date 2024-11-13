@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/">
+        <file>Car_Dark.png</file>
+        <file>sortir.png</file>
+        <file>verrouiller.png</file>
+        <file>Car_Dark2.png</file>
+    </qresource>
+</RCC>
