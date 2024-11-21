@@ -13,6 +13,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , timer(new QTimer(this))
+    , timer2(new QTimer(this))
     , timerSJF(new QTimer(this))
     , timerSRTF(new QTimer(this))
     ,timerRR(new QTimer(this))
@@ -118,7 +119,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(ui->RRP_button, &QPushButton::clicked, [this]() {
         ui->stackedWidget->setCurrentWidget(ui->page3);
-        RRP();
+         RRP();
     });
     connect(ui->actualiser, &QPushButton::clicked, [this](){
         reloadTableProc();
@@ -187,6 +188,9 @@ void MainWindow::FCFS() {
     temp_attente.resize(n);
     temp_sejour.resize(n);
     completion_time.resize(n);
+    std::sort(std::begin(proc), std::end(proc), [](const Processus& a, const Processus& b) {
+        return a.temps_arriver < b.temps_arriver;
+    });
 
     // Calcul des temps de fin pour chaque processus
     completion_time[0] = proc[0].temps_arriver + proc[0].temps_execution;
@@ -213,7 +217,12 @@ void MainWindow::FCFS() {
         ui->tableProcessEnd->setItem(i, 2, new QTableWidgetItem(QString::number(temp_attente[i])));
         ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(completion_time[i])));
         ui->tableProcessEnd->setItem(i, 4, new QTableWidgetItem(QString::number(proc[i].temps_arriver)));
-        ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc[i].heures_debut)));
+        if(i == 0){
+            ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc[i].temps_arriver)));
+        }else{
+            ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(completion_time[i-1])));
+        }
+
         ui->tableProcessEnd->setItem(i, 6, new QTableWidgetItem(QString::number(temp_sejour[i])));
         ui->tableProcessEnd->setItem(i, 7, new QTableWidgetItem(QString::number(proc[i].temps_restant)));
         ui->tableProcessEnd->setItem(i, 8, new QTableWidgetItem(QString::number(proc[i].priorite)));
@@ -284,90 +293,257 @@ void MainWindow::resetState() {
     }
 }
 
-void MainWindow::SJF() {
-    int n = NB_PROCESSUS;
-    temp_attente.resize(n);
-    temp_sejour.resize(n);
-    temp_fin.resize(n);
-    remaining_temp.resize(n); // Temps d'exécution restant pour chaque processus
-
-    // Initialiser les temps
-    for (int i = 0; i < n; i++) {
-        remaining_temp[i] = proc2[i].temps_execution;
-        temp_attente[i] = 0;
-        temp_sejour[i] = 0;
-        temp_fin[i] = 0; // Initialiser le temps de fin
+void MainWindow::findWaitingTimeRRP()
+{
+    int t = 0; // temps actuel
+    std::vector<int> rem_bt(proc.size());
+    for (size_t i = 0; i < proc.size(); i++) {
+        rem_bt[i] = proc[i].temps_execution;
     }
 
-    int compte = 0, current_time = 0; // Compteur de processus terminés et temps actuel
-
-    // Tableau pour le diagramme de Gantt
-    gantt_times.resize(100); // Ajustez la taille si nécessaire
-    gantt_process.resize(100); // Ajustez la taille si nécessaire
-    gantt_index = 0;
-
-    // Continue jusqu'à ce que tous les processus soient terminés
-    while (compte < n) {
-        int idx = -1;
-        int min_execution_time = INT_MAX; // Temps d'exécution minimum
-
-        // Trouver le processus avec le temps d'exécution le plus court qui est prêt à s'exécuter
-        for (int i = 0; i < n; i++) {
-            if (proc2[i].heures_debut <= current_time && remaining_temp[i] > 0 && remaining_temp[i] < min_execution_time) {
-                min_execution_time = remaining_temp[i];
-                idx = i; // Index du processus choisi
+    while (true) {
+        bool done = true;
+        for (size_t i = 0; i < proc.size(); i++) {
+            if (rem_bt[i] > 0) {
+                done = false; // Il reste des Processus à traiter
+                if (rem_bt[i] > quantum) {
+                    t += quantum;
+                    rem_bt[i] -= quantum;
+                } else {
+                    t += rem_bt[i];
+                    proc[i].temps_attente = t - proc[i].temps_execution;
+                    rem_bt[i] = 0;
+                }
             }
         }
+        if (done) break;
+    }
+}
 
-        if (idx != -1) {
-            // Exécuter le processus choisi
-            current_time += remaining_temp[idx];
-            temp_fin[idx] = current_time; // Enregistrer le temps de fin
-            temp_sejour[idx] = current_time - proc2[idx].heures_debut; // Calculer le temps de séjour
-            temp_attente[idx] = temp_sejour[idx] - proc2[idx].temps_execution; // Calculer le temps d'attente
-            remaining_temp[idx] = 0; // Marquer le processus comme terminé
-            compte++; // Incrémenter le compteur de processus terminés
+void MainWindow::findTurnAroundTimeRRP()
+{
+    for (auto& p : proc) {
+        p.temps_sejour = p.temps_execution + p.temps_attente;
+    }
+}
 
-            // Ajouter le processus au diagramme de Gantt
-            gantt_times[gantt_index] = current_time;
-            gantt_process[gantt_index++] = proc2[idx].id;
+void MainWindow::findAvgTimeRRP()
+{
+    int totalWaitingTime = 0, totalTurnAroundTime = 0;
+    findWaitingTimeRRP();
+    findTurnAroundTimeRRP();
 
-        } else {
-            current_time++; // Si aucun processus n'est prêt, incrémenter le temps actuel
+    ui->tableProcessEnd->setRowCount(NB_PROCESSUS);
+    for (int i = 0; i < NB_PROCESSUS; ++i) {
+
+        totalWaitingTime += proc[i].temps_attente;
+        totalTurnAroundTime += proc[i].temps_sejour;
+        qDebug() << proc[i].temps_execution;
+        ui->tableProcessEnd->setItem(i, 0, new QTableWidgetItem(QString::number(0)));
+        ui->tableProcessEnd->setItem(i, 1, new QTableWidgetItem(QString::number(proc[i].temps_execution)));
+        ui->tableProcessEnd->setItem(i, 2, new QTableWidgetItem(QString::number(proc[i].temps_attente)));
+        ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(proc[i].temps_fin)));
+        ui->tableProcessEnd->setItem(i, 4, new QTableWidgetItem(QString::number(proc[i].temps_arriver)));
+        ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc[i].heures_debut)));
+        ui->tableProcessEnd->setItem(i, 6, new QTableWidgetItem(QString::number(proc[i].temps_sejour)));
+        ui->tableProcessEnd->setItem(i, 7, new QTableWidgetItem(QString::number(proc[i].temps_restant)));
+        ui->tableProcessEnd->setItem(i, 8, new QTableWidgetItem(QString::number(proc[i].priorite)));
+    }
+
+    QString averageTimes;
+    dataFCFS.append("\n");
+    averageTimes.append("Temps d'attente moyen: " + QString::number(totalWaitingTime / NB_PROCESSUS, 'f', 2) + "\n");
+    averageTimes.append("Temps de séjour moyen: " + QString::number(totalTurnAroundTime / NB_PROCESSUS, 'f', 2) + "\n");
+    // Result[0].tempsMoyen = temp_de_sejour_moyen / totalProcesses;
+    // Result[0].tempsTotal = temp_attente_moyen / totalProcesses;
+    ui->diagrammeDeGanttFcfs_2->setText("Temps d'attente moyen: "+ QString::number(totalTurnAroundTime / NB_PROCESSUS) + "\n Temps de séjour moyen: " + QString::number(totalTurnAroundTime / totalProcesses) );
+    ui->Temps->setText(averageTimes); // Ajouter les temps moyens au QTextBrowser
+}
+
+void MainWindow::runRRP()
+{
+    std::sort(std::begin(proc), std::end(proc), [](const Processus& a, const Processus& b) {
+        return a.temps_arriver < b.temps_arriver;
+    });
+    findAvgTimeRRP();
+}
+
+void MainWindow::printGanttChart()
+{
+    qDebug() << "\nGantt Chart:\n";
+    int t = 0;
+    std::vector<std::string> chart;
+    std::vector<int> rem_bt(proc.size());
+    for (size_t i = 0; i < proc.size(); i++) {
+        rem_bt[i] = proc[i].temps_execution;
+    }
+    while (true) {
+        bool done = true;
+        for (size_t i = 0; i < proc.size(); i++) {
+            if (rem_bt[i] > 0) {
+                done = false; // Il reste des Processus à traiter
+                if (rem_bt[i] > quantum) {
+                    t += quantum;
+                    chart.push_back("P" + std::to_string(proc[i].id));
+                    rem_bt[i] -= quantum;
+                } else {
+                    t += rem_bt[i];
+                    chart.push_back("P" + std::to_string(proc[i].id));
+                    rem_bt[i] = 0;
+                }
+            }
         }
+        if (done) break;
+    }
+    for (const auto& p : chart) {
+        qDebug() << "| " << p << " ";
+    }
+    qDebug() << "|\n0";
+    t = 0;
+    for (const auto& p : chart) {
+        t += quantum;
+        qDebug() << "    " << t;
+    }
+    qDebug() << "\n";
+}
+
+int MainWindow::mainRRP()
+{
+
+    int currentTime = 0;
+    runRRP();
+    printGanttChart();
+    return 0;
+}
+
+
+
+void MainWindow::SJF() {
+    runSJF();
+   // startGanttDiagramSJF();
+
+}
+
+void MainWindow::runSJF()
+{
+    std::sort(std::begin(proc), std::end(proc), [](const Processus& a, const Processus& b) {
+        return a.temps_execution < b.temps_execution;
+    });
+
+    tempsMoyenTotalSJF();
+}
+
+void MainWindow::tempsAttenteTotalSJF()
+{
+    proc[0].temps_attente = 0; // Le premier processus n'a pas de temps d'attente
+    proc[0].heures_debut = proc[0].temps_arriver;
+    proc[0].temps_fin = proc[0].heures_debut + proc[0].temps_execution;
+
+    for (int i = 1; i < NB_PROCESSUS; i++) {
+        proc[i].temps_attente = proc[i - 1].temps_attente + proc[i - 1].temps_execution;
+        proc[i].temps_fin = proc[i].temps_attente + proc[i].temps_execution + proc[i].temps_arriver;
+        proc[i].heures_debut = proc[i-1].temps_fin;
+        qDebug() << "le temps d'attente "+ QString::number(proc[i].heures_debut);
+
+    }
+}
+
+void MainWindow::tempsSejourTotalSJF()
+{
+    for (int i = 0; i < NB_PROCESSUS; i++) {
+        proc[i].temps_sejour = proc[i].temps_arriver + proc[i].temps_attente;
+
+    }
+}
+
+void MainWindow::tempsMoyenTotalSJF()
+{
+
+    int total_wt = 0, total_tat = 0;
+    tempsAttenteTotalSJF();
+    tempsSejourTotalSJF();
+
+    ui->tableProcessEnd->setRowCount(NB_PROCESSUS);
+    for (int i = 0; i < NB_PROCESSUS; ++i) {
+        total_wt += proc[i].temps_attente;
+        total_tat += proc[i].temps_sejour;
+        ui->tableProcessEnd->setItem(i, 0, new QTableWidgetItem(QString::number(proc[i].id)));
+        ui->tableProcessEnd->setItem(i, 1, new QTableWidgetItem(QString::number(proc[i].temps_execution)));
+        ui->tableProcessEnd->setItem(i, 2, new QTableWidgetItem(QString::number(proc[i].temps_attente)));
+        ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(proc[i].temps_fin)));
+        ui->tableProcessEnd->setItem(i, 4, new QTableWidgetItem(QString::number(proc[i].temps_arriver)));
+        ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc[i].heures_debut)));
+        ui->tableProcessEnd->setItem(i, 6, new QTableWidgetItem(QString::number(proc[i].temps_sejour)));
+        ui->tableProcessEnd->setItem(i, 7, new QTableWidgetItem(QString::number(proc[i].temps_restant)));
+        ui->tableProcessEnd->setItem(i, 8, new QTableWidgetItem(QString::number(proc[i].priorite)));
     }
 
-    // Mettre à jour le tableau des processus
-    ui->tableProcessEnd->setRowCount(n);
-    for (int i = 0; i < n; ++i) {
-        ui->tableProcessEnd->setItem(i, 0, new QTableWidgetItem(QString::number(proc2[i].id)));
-        ui->tableProcessEnd->setItem(i, 1, new QTableWidgetItem(QString::number(proc2[i].temps_execution)));
-        ui->tableProcessEnd->setItem(i, 2, new QTableWidgetItem(QString::number(temp_attente[i])));
-        ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(temp_fin[i])));
-        ui->tableProcessEnd->setItem(i, 4, new QTableWidgetItem(QString::number(proc2[i].temps_arriver)));
-        ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc2[i].heures_debut)));
-        ui->tableProcessEnd->setItem(i, 6, new QTableWidgetItem(QString::number(temp_sejour[i])));
-        ui->tableProcessEnd->setItem(i, 7, new QTableWidgetItem(QString::number(proc2[i].temps_restant)));
-        ui->tableProcessEnd->setItem(i, 8, new QTableWidgetItem(QString::number(proc2[i].priorite)));
-    }
+    QString averageTimes;
+    averageTimes.append("Temps d'attente moyen: " + QString::number(total_wt / NB_PROCESSUS, 'f', 2) + "\n");
+    averageTimes.append("Temps de séjour moyen: " + QString::number(total_tat / NB_PROCESSUS, 'f', 2) + "\n");
+    ui->Temps->setText(averageTimes);
+    ui->diagrammeDeGanttSJF_2->setText(averageTimes );
     startGanttDiagramSJF();
 
 }
 
-void MainWindow::startGanttDiagramRRP(){
+int MainWindow::compareBurstTimeSJF(const void *a, const void *b)
+{
+    Processus *p1 = (Processus *)a;
+    Processus *p2 = (Processus *)b;
+    return p1->temps_execution - p2->temps_execution;
+}
+
+void MainWindow::startGanttDiagramRRP() {
     ganttDiagram.clear();
     ganttDiagram.append("Diagramme de Gantt:\n  ");
     currentIndex = 0;
-    totalProcesses = gantt_index;
+    totalProcesses = gantt_process.size();
     timerRRP->start(1000);  // Mise à jour toutes les secondes
+
+    connect(timerRRP, &QTimer::timeout, this, &MainWindow::updateGanttDiagramRRP);
 }
+
+void MainWindow::updateGanttDiagramRRP() {
+    if (currentIndex < totalProcesses) {
+        int j = (currentIndex == 0) ? 0 : gantt_times[currentIndex - 1];
+        ganttDiagram.append("| P" + QString::number(gantt_process[currentIndex]) + " [");
+        ganttDiagram.append(QString::number(j) + "-----" + QString::number(gantt_times[currentIndex]) + "] ");
+        ganttDiagramRRP.append("| P" + QString::number(gantt_process[currentIndex]) + " [");
+        ganttDiagramRRP.append(QString::number(j) + "-----" + QString::number(gantt_times[currentIndex]) + "] ");
+        ui->diagrammeDeGanttFcfs->setText(ganttDiagram); // Afficher le diagramme dans un QTextBrowser
+        currentIndex++;
+    } else {
+        timerRRP->stop();
+        // Afficher les temps moyens d'attente et de séjour
+        double moyenne_attente = 0, moyenne_sejour = 0;
+        for (int i = 0; i < NB_PROCESSUS; i++) {
+            moyenne_attente += temp_attente[i];
+            moyenne_sejour += temp_sejour[i];
+        }
+        QString data;
+        data.append(" **************** Rapport *****************\n");
+        data.append("Temps d'attente moyen: " + QString::number(moyenne_attente / NB_PROCESSUS) + "\n");
+        data.append("Temps de séjour moyen: " + QString::number(moyenne_sejour / NB_PROCESSUS));
+        ui->Temps->setText(data);
+        ui->diagrammeDeGanttRRP_2->setText(data);
+
+        proc.clear();
+        for (int i = 0; i < NB_PROCESSUS; ++i) {
+            proc[i] = proc2[i];
+        }
+    }
+}
+
 
 void MainWindow::startGanttDiagramSJF() {
     ganttDiagram.clear();
+    qDebug() << "test sur le SJF";
     ganttDiagram.append("Diagramme de Gantt:\n  ");
     currentIndex = 0;
-    totalProcesses = gantt_index;
+    totalProcesses = NB_PROCESSUS;
     timerSJF->start(1000);  // Mise à jour toutes les secondes
+
 }
 void MainWindow::startGanttDiagramSRTF(){
     ganttDiagram.clear();
@@ -377,39 +553,18 @@ void MainWindow::startGanttDiagramSRTF(){
     timerSRTF->start(1000);  // Mise à jour toutes les seconde
 }
 void MainWindow::updateGanttDiagramSJF() {
-
+    qDebug() << QString::number(totalProcesses);
     if (currentIndex < totalProcesses) {
-        int j = (currentIndex == 0) ? 0 : gantt_times[currentIndex - 1];
-        ganttDiagram.append("| P" + QString::number(gantt_process[currentIndex]) + " [");
-        ganttDiagram.append(QString::number(j) + "-----" + QString::number(gantt_times[currentIndex]) + "] ");
-        ganttDiagramSJF.append("| P" + QString::number(gantt_process[currentIndex]) + " [");
-        ganttDiagramSJF.append(QString::number(j) + "-----" + QString::number(gantt_times[currentIndex]) + "] ");
+        qDebug() << QString::number(currentIndex) + " index";
+        ganttDiagram.append("| P" + QString::number(proc[currentIndex].id) + " [");
+        ganttDiagram.append(QString::number(proc[currentIndex].heures_debut) + "-----" + QString::number(proc[currentIndex].temps_fin) + "] ");
+
+        ganttDiagramSJF.append("| P" + QString::number(proc[currentIndex].id) + " [");
+        ganttDiagramSJF.append(QString::number(proc[currentIndex].heures_debut) + "-----" + QString::number(proc[currentIndex].temps_fin) + "] ");
         ui->diagrammeDeGanttFcfs->setText(ganttDiagram); // Afficher le diagramme dans un QTextBrowser
         currentIndex++;
     } else {
         timerSJF->stop();
-
-        // Calcul et affichage des temps moyens d'attente et de séjour
-        float moyenne_attente = 0, moyenne_sejour = 0;
-        for (int i = 0; i < NB_PROCESSUS; i++) {
-            moyenne_attente += temp_attente[i];
-            moyenne_sejour += temp_sejour[i];
-        }
-
-        // Commencez l'affichage du diagramme de Gantt en temps réel
-        // qDebug() << ganttDiagramSJF
-
-
-        QString averageTimes;
-        averageTimes.append("Temps d'attente moyen: " + QString::number(moyenne_attente / NB_PROCESSUS, 'f', 2) + "\n");
-        averageTimes.append("Temps de séjour moyen: " + QString::number(moyenne_sejour / NB_PROCESSUS, 'f', 2) + "\n");
-        ui->Temps->setText(averageTimes);
-        ui->diagrammeDeGanttSJF_2->setText(averageTimes );
-        proc.clear();
-        for (int i = 0; i < NB_PROCESSUS; ++i) {
-            proc[i] = proc2[i];
-        }
-
     }
 
 }
@@ -442,36 +597,36 @@ void MainWindow::updateGanttDiagramSRTF() {
         resetState();
     }
 }
-void MainWindow::updateGanttDiagramRRP(){
-    if (currentIndex < totalProcesses) {
-        int j = (currentIndex == 0) ? 0 : gantt_times[currentIndex - 1];
-        ganttDiagram.append("| P" + QString::number(gantt_process[currentIndex]) + " [");
-        ganttDiagram.append(QString::number(j) + "-----" + QString::number(gantt_times[currentIndex]) + "] ");
-        ganttDiagramRR.append("| P" + QString::number(gantt_process[currentIndex]) + " [");
-        ganttDiagramRRP.append(QString::number(j) + "-----" + QString::number(gantt_times[currentIndex]) + "] ");
-        ui->diagrammeDeGanttFcfs->setText(ganttDiagram); // Afficher le diagramme dans un QTextBrowser
-        currentIndex++;
-    } else {
-        timerRRP->stop();
-        // Afficher les temps moyens d'attente et de séjour
-        double moyenne_attente = 0, moyenne_sejour = 0;
-        for (int i = 0; i < NB_PROCESSUS; i++) {
-            moyenne_attente += temp_attente[i];
-            moyenne_sejour += temp_sejour[i];
-        }
-        QString data;
-        data.append(" **************** Rapport *****************\n");
-        data.append("Temps d'attente moyen: "+ QString::number(moyenne_attente / NB_PROCESSUS)+"\n" );
-        data.append("Temps de séjour moyen: "+ QString::number(moyenne_sejour / NB_PROCESSUS) );
-        ui->Temps->setText(data);
-        ui->diagrammeDeGanttRRP_2->setText(data );
+// void MainWindow::updateGanttDiagramRRP(){
+//     if (currentIndex < totalProcesses) {
+//         int j = (currentIndex == 0) ? 0 : gantt_times[currentIndex - 1];
+//         ganttDiagram.append("| P" + QString::number(gantt_process[currentIndex]) + " [");
+//         ganttDiagram.append(QString::number(j) + "-----" + QString::number(gantt_times[currentIndex]) + "] ");
+//         ganttDiagramRRP.append("| P" + QString::number(gantt_process[currentIndex]) + " [");
+//         ganttDiagramRRP.append(QString::number(j) + "-----" + QString::number(gantt_times[currentIndex]) + "] ");
+//         ui->diagrammeDeGanttFcfs->setText(ganttDiagram); // Afficher le diagramme dans un QTextBrowser
+//         currentIndex++;
+//     } else {
+//         timerRRP->stop();
+//         // Afficher les temps moyens d'attente et de séjour
+//         double moyenne_attente = 0, moyenne_sejour = 0;
+//         for (int i = 0; i < NB_PROCESSUS; i++) {
+//             moyenne_attente += temp_attente[i];
+//             moyenne_sejour += temp_sejour[i];
+//         }
+//         QString data;
+//         data.append(" **************** Rapport *****************\n");
+//         data.append("Temps d'attente moyen: "+ QString::number(moyenne_attente / NB_PROCESSUS)+"\n" );
+//         data.append("Temps de séjour moyen: "+ QString::number(moyenne_sejour / NB_PROCESSUS) );
+//         ui->Temps->setText(data);
+//         ui->diagrammeDeGanttRRP_2->setText(data );
 
-        proc.clear();
-        for (int i = 0; i < NB_PROCESSUS; ++i) {
-            proc[i] = proc2[i];
-        }
-    }
-}
+//         proc.clear();
+//         for (int i = 0; i < NB_PROCESSUS; ++i) {
+//             proc[i] = proc2[i];
+//         }
+//     }
+// }
 
 void MainWindow::RR(){
     averageTimes.clear();
@@ -491,7 +646,7 @@ void MainWindow::RR(){
         ui->tableProcessEnd->setItem(i, 0, new QTableWidgetItem(QString::number(proc[i].id)));
         ui->tableProcessEnd->setItem(i, 1, new QTableWidgetItem(QString::number(proc[i].temps_execution)));
         ui->tableProcessEnd->setItem(i, 2, new QTableWidgetItem(QString::number(proc[i].temps_attente)));
-        ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(0)));
+        ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(proc[i].temps_fin)));
         ui->tableProcessEnd->setItem(i, 4, new QTableWidgetItem(QString::number(proc[i].temps_arriver)));
         ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc[i].heures_debut)));
         ui->tableProcessEnd->setItem(i, 6, new QTableWidgetItem(QString::number(proc[i].temps_sejour)));
@@ -513,7 +668,7 @@ void MainWindow::startGanttDiagramRR(){
 void MainWindow::trierParPriorite(){
     for (int i = 0; i < NB_PROCESSUS - 1; i++) {
         for (int j = i + 1; j < NB_PROCESSUS; j++) {
-            if (proc[i].priorite > proc[j].priorite) {
+            if (proc[i].priorite < proc[j].priorite) {
                 struct Processus temp = proc[i];
                 proc[i] = proc[j];
                 proc[j] = temp;
@@ -526,9 +681,9 @@ void MainWindow::calculerTempsAttente() {
     int t = 0; // Current time
     int fini = 0; // Flag to check if all processes are finished
     int processusRestants = NB_PROCESSUS; // Number of remaining processes
-   // QString averageTimes; // To store process execution details
+    // QString averageTimes; // To store process execution details
 
-    // Initialize processes with remaining time equal to execution time
+    trierParPriorite();
     for (int i = 0; i < NB_PROCESSUS; i++) {
         proc[i].temps_restant = proc[i].temps_execution;
         proc[i].heures_debut = -1; // Initialize start time to -1 (undefined)
@@ -538,10 +693,9 @@ void MainWindow::calculerTempsAttente() {
     while (processusRestants > 0) {
         fini = 1;
         for (int i = 0; i < NB_PROCESSUS; i++) {
-            // If process has arrived and has remaining time
+
             if (proc[i].temps_arriver <= t && proc[i].temps_restant > 0) {
-                fini = 0; // There is at least one process remaining
-                // Add process to execution order
+                fini = 0;
                 ordreExecution[nbExecutions] = proc[i].id;
                 nbExecutions++;
 
@@ -558,7 +712,7 @@ void MainWindow::calculerTempsAttente() {
                     // averageTimes.append("P_" + QString::number(ordreExecution[nbExecutions - 1]) + " s'execute pour " + QString::number(quantum) + " unités de temps et il lui reste " +QString::number(proc[i].temps_restant) +" unités de temps \n");
                 } else {
                     t += proc[i].temps_restant;
-                    proc[i].temps_attente = t - proc[i].temps_execution - proc[i].temps_arriver;
+                    proc[i].temps_attente = t - proc[i].temps_execution - proc[i].heures_debut;
                     proc[i].temps_restant = 0;
                     proc[i].temps_fin = t; // Calculate finish time
                     // averageTimes.append("P_" + QString::number(ordreExecution[nbExecutions - 1]) + " est fini à " + QString::number(t) + "\n");
@@ -589,72 +743,146 @@ void MainWindow::calculerTempsAttente() {
 
 void MainWindow::calculerTempsSejour(){
     for (int i = 0; i < NB_PROCESSUS; i++) {
-        proc[i].temps_sejour = proc[i].temps_execution + proc[i].temps_attente;
+        proc[i].temps_sejour = proc[i].temps_fin - proc[i].heures_debut;
     }
 }
 
-void MainWindow::RRP(){
-    dataRRP.clear();
-    dataRRP.append("**************** RR v2 ***************\n");
-    trierParPriorite();
-    temp_attente.resize(NB_PROCESSUS), temp_sejour.resize(NB_PROCESSUS), temp_fin.resize(NB_PROCESSUS); // Tableaux pour stocker les temps d'attente, de séjour et de fin
-    remaining_temp.resize(NB_PROCESSUS); // temps d'exécution restant pour chaque processus
-    gantt_process.resize(100);
-    gantt_times.resize(NB_PROCESSUS); // Tableaux pour le diagramme de Gantt
-    gantt_index = 0; // Indice pour le diagramme de Gantt
 
-    // Initialiser les temps
-    for (int i = 0; i < NB_PROCESSUS; i++) {
-        remaining_temp[i] = proc[i].temps_execution;
-        temp_attente[i] = 0;
-        temp_sejour[i] = 0;
-        temp_fin[i] = 0;
+void MainWindow::RRP() {
+    int quantum = 2;
+    // Sort processes by arrival time and priority
+    std::sort(proc.begin(), proc.end(), [](const Processus& a, const Processus& b) {
+        if (a.temps_arriver != b.temps_arriver)
+            return a.temps_arriver < b.temps_arriver;
+        return a.priorite > b.priorite;
+    });
+
+    for (size_t i = 0; i < proc.size(); ++i) {
+        proc[i].temps_restant = proc[i].temps_execution;
     }
 
-    int current_time = 0; // Temps actuel
-    int compte = 0; // Compteur de processus terminés
-
-    // Continue jusqu'à ce que tous les processus soient terminés
-    while (compte < NB_PROCESSUS) {
-        for (int i = 0; i < NB_PROCESSUS; i++) {
-            if (remaining_temp[i] > 0) {
-                if (remaining_temp[i] > quantum) {
-                    current_time += quantum; // Incrémenter le temps actuel par le quantum
-                    remaining_temp[i] -= quantum; // Réduire le temps d'exécution restant
-                } else {
-                    current_time += remaining_temp[i]; // Incrémenter le temps actuel par le temps restant
-                    remaining_temp[i] = 0; // Le processus est terminé
-                    temp_fin[i] = current_time; // Enregistrer le temps de fin
-                    temp_sejour[i] = current_time - proc[i].temps_arriver; // Calculer le temps de séjour
-                    temp_attente[i] = temp_sejour[i] - proc[i].temps_execution; // Calculer le temps d'attente
-                    compte++; // Incrémenter le compteur de processus terminés
+    int currentTime = 0;
+    // auto processus = proc.begin();
+    bool check = false;
+    processeur = &proc[0];
+    currentTime = processeur->temps_arriver;
+    while (!check) {
+        for(auto processus : proc){
+            if(processus.temps_arriver <= currentTime){
+                if(processeur == nullptr){
+                    processeur = &processus;
+                    if(processeur->heures_debut == 0){
+                        processeur->heures_debut = currentTime;
+                    }
+                }else{
+                    if(processeur->priorite < processus.priorite){
+                        processeur = &processus;
+                        if(processeur->heures_debut == 0){
+                            processeur->heures_debut = currentTime;
+                        }
+                        break;
+                    }
                 }
 
-                gantt_process[gantt_index] = proc[i].id; // Enregistrer l'id du processus pour le diagramme de Gantt
-                gantt_times[gantt_index] = current_time; // Enregistrer le temps actuel pour le diagramme de Gantt
-                gantt_index++;
             }
         }
+        if(processeur != nullptr){
+            processeur->temps_restant -= 1;
+            if(processeur->temps_restant == 0){
+                processeur->temps_fin = currentTime;
+                processeur = nullptr;
+            }
+        }else{
+            if(proc.end()->temps_arriver > currentTime){
+                check = true;
+            }
+        }
+        currentTime += 1;
     }
 
-    // Afficher les résultats
     ui->tableProcessEnd->setRowCount(NB_PROCESSUS);
     for (int i = 0; i < NB_PROCESSUS; ++i) {
         ui->tableProcessEnd->setItem(i, 0, new QTableWidgetItem(QString::number(proc[i].id)));
         ui->tableProcessEnd->setItem(i, 1, new QTableWidgetItem(QString::number(proc[i].temps_execution)));
-        ui->tableProcessEnd->setItem(i, 2, new QTableWidgetItem(QString::number(temp_attente[i])));
-        ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(temp_fin[i])));
+        ui->tableProcessEnd->setItem(i, 2, new QTableWidgetItem(QString::number(proc[i].temps_attente)));
+        ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(proc[i].temps_fin)));
         ui->tableProcessEnd->setItem(i, 4, new QTableWidgetItem(QString::number(proc[i].temps_arriver)));
-        ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc[i].heures_debut)));
-        ui->tableProcessEnd->setItem(i, 6, new QTableWidgetItem(QString::number(temp_sejour[i])));
+        ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc[i].temps_fin )));
+        ui->tableProcessEnd->setItem(i, 6, new QTableWidgetItem(QString::number(proc[i].temps_sejour)));
         ui->tableProcessEnd->setItem(i, 7, new QTableWidgetItem(QString::number(proc[i].temps_restant)));
         ui->tableProcessEnd->setItem(i, 8, new QTableWidgetItem(QString::number(proc[i].priorite)));
     }
-    startGanttDiagramRRP();
 
+    int t = 0; // current time
+    std::vector<int> rem_bt(proc.size());
+    for (size_t i = 0; i < proc.size(); ++i) {
+        rem_bt[i] = proc[i].temps_restant;
+    }
 
+    std::vector<std::string> ganttChart;
 
+    // while (true) {
+    //     bool done = true;
+
+    //     for (size_t i = 0; i < proc.size(); ++i) {
+    //         if (rem_bt[i] > 0) {
+    //             done = false; // There is a pending process
+
+    //             if (rem_bt[i] > quantum) {
+    //                 t += quantum;
+    //                 rem_bt[i] -= quantum;
+    //                 ganttChart.push_back("P" + std::to_string(proc[i].id) + " [" + std::to_string(t - quantum) + " - " + std::to_string(t) + "]");
+    //             } else {
+    //                 t += rem_bt[i];
+    //                 proc[i].temps_attente = t - proc[i].temps_execution;
+    //                 rem_bt[i] = 0;
+    //                 proc[i].temps_fin = t;
+    //                 ganttChart.push_back("P" + std::to_string(proc[i].id) + " [" + std::to_string(t - rem_bt[i]) + " - " + std::to_string(t) + "]");
+    //             }
+    //         }
+    //     }
+
+    //     if (done) break;
+    // }
+
+    // for (auto& p : proc) {
+    //     p.temps_sejour = p.temps_execution + p.temps_attente;
+    // }
+    // QString text;
+    // // Printing Gantt Chart
+    // text.append( "\nGantt Chart:\n");
+    // for (const auto& entry : ganttChart) {
+    //     text.append( "| " + entry + " ");
+    // }
+    // text.append("|\n");
+    // ui->diagrammeDeGanttFcfs->setText(text);
+
+    // // Printing average times
+    // int totalWaitingTime = 0, totalTurnAroundTime = 0;
+    // //std::cout << "Processus\tBurst Time\tArrival Time\tPriority\tWaiting Time\tTurnaround Time\tEnd Time\n";
+
+    // ui->tableProcessEnd->setRowCount(NB_PROCESSUS);
+    // for (int i = 0; i < NB_PROCESSUS; ++i) {
+    //     ui->tableProcessEnd->setItem(i, 0, new QTableWidgetItem(QString::number(proc[i].id)));
+    //     ui->tableProcessEnd->setItem(i, 1, new QTableWidgetItem(QString::number(proc[i].temps_execution)));
+    //     ui->tableProcessEnd->setItem(i, 2, new QTableWidgetItem(QString::number(proc[i].temps_attente)));
+    //     ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(proc[i].temps_fin)));
+    //     ui->tableProcessEnd->setItem(i, 4, new QTableWidgetItem(QString::number(proc[i].temps_arriver)));
+    //     ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc[i].temps_fin )));
+    //     ui->tableProcessEnd->setItem(i, 6, new QTableWidgetItem(QString::number(proc[i].temps_sejour)));
+    //     ui->tableProcessEnd->setItem(i, 7, new QTableWidgetItem(QString::number(proc[i].temps_restant)));
+    //     ui->tableProcessEnd->setItem(i, 8, new QTableWidgetItem(QString::number(proc[i].priorite)));
+    // }
+
+    // averageTimes.append("Temps moyen d'attente : " + QString::number(totalWaitingTime / NB_PROCESSUS) + "\n");
+    // averageTimes.append("\nTemps moyen de séjour : "+ QString::number(totalTurnAroundTime / NB_PROCESSUS));
+    // ui->Temps->setText(averageTimes);
+
+    /*std::cout << "Average waiting time = " << static_cast<float>(totalWaitingTime) / proc.size() << "\n";
+    std::cout << "Average turnaround time = " << static_cast<float>(totalTurnAroundTime) / proc.size() << "\n";*/
 }
+
+
 
 void MainWindow::afficherDiagrammeGantt(){
 
@@ -758,11 +986,11 @@ void MainWindow::SRTF(){
     for (int i = 0; i < n; ++i) {
         ui->tableProcessEnd->setItem(i, 0, new QTableWidgetItem(QString::number(proc[i].id)));
         ui->tableProcessEnd->setItem(i, 1, new QTableWidgetItem(QString::number(proc[i].temps_execution)));
-        ui->tableProcessEnd->setItem(i, 2, new QTableWidgetItem(QString::number(temp_attente[i])));
-        ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(temp_fin[i])));
+        ui->tableProcessEnd->setItem(i, 2, new QTableWidgetItem(QString::number(proc[i].temps_attente)));
+        ui->tableProcessEnd->setItem(i, 3, new QTableWidgetItem(QString::number(proc[i].temps_fin)));
         ui->tableProcessEnd->setItem(i, 4, new QTableWidgetItem(QString::number(proc[i].temps_arriver)));
-        ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc[i].heures_debut)));
-        ui->tableProcessEnd->setItem(i, 6, new QTableWidgetItem(QString::number(temp_sejour[i])));
+        ui->tableProcessEnd->setItem(i, 5, new QTableWidgetItem(QString::number(proc[i].temps_fin - proc[i].temps_attente - proc[i].temps_execution)));
+        ui->tableProcessEnd->setItem(i, 6, new QTableWidgetItem(QString::number(proc[i].temps_sejour)));
         ui->tableProcessEnd->setItem(i, 7, new QTableWidgetItem(QString::number(proc[i].temps_restant)));
         ui->tableProcessEnd->setItem(i, 8, new QTableWidgetItem(QString::number(proc[i].priorite)));
     }

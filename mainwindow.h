@@ -25,6 +25,11 @@ private slots:
         void startGanttDiagramFCFS();
         void updateGanttDiagramFCFS();
         void SJF();
+        void runSJF();
+        void tempsAttenteTotalSJF();
+        void tempsSejourTotalSJF();
+        void tempsMoyenTotalSJF();
+        static int compareBurstTimeSJF(const void *a, const void *b);
         void startGanttDiagramSJF();
         void updateGanttDiagramSJF();
         void SRTF();
@@ -32,6 +37,7 @@ private slots:
         void updateGanttDiagramSRTF();
         void updateGanttDiagramRRP();
         void RR();
+        //void roundRobinPriority();
         // void afficherOrdreExecution();
         void afficherDiagrammeGantt();
         void startGanttDiagramRR();
@@ -41,13 +47,21 @@ private slots:
         void calculerTempsSejour();
         void RRP();
         void resetState();
+        void findWaitingTimeRRP();
+        void findTurnAroundTimeRRP();
+        void findAvgTimeRRP();
+        void runRRP();
+        void printGanttChart();
+        int mainRRP();
 private:
     Ui::MainWindow *ui;
     int NB_PROCESSUS;
     std::vector<Processus> proc;
     std::vector<Processus> proc2;
+    Processus *processeur = nullptr;
     std::vector<result> Result;
     QTimer *timer;
+    QTimer *timer2;
     QTimer *timerSJF;
     QTimer *timerSRTF;
     QTimer *timerRR;
