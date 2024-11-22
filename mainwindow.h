@@ -20,6 +20,8 @@ public:
     ~MainWindow();
 
 private slots:
+        bool comparerPriorite(Processus *a, Processus *b);
+        void tempsMoyenTotal();
         void reloadTableProc();
         void FCFS();
         void startGanttDiagramFCFS();
@@ -79,6 +81,11 @@ private:
     QString ganttDiagramRRP;
     QString averageTimes;
     int currentIndex;
+    int currentTime;
+    int moyenne_attente;
+    int moyenne_sejour;
+    int attente_total;
+    int sejour_total;
     int totalProcesses;
     int gantt_index;
     int nbExecutions = 0;
